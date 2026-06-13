@@ -10,7 +10,7 @@ from telethon.sessions import StringSession
 from telethon.tl.types import (
     Channel, Chat, User, InputPeerChannel,
     MessageMediaPhoto, MessageMediaDocument,
-    ForumTopic, Message, TypeChat, TypeChannel
+    ForumTopic, Message, TypeChat,
 )
 from telethon.errors import (
     FloodWaitError, ChatForwardsRestrictedError,
@@ -63,10 +63,17 @@ async def get_client(telegram_id: int, session_string: str) -> TelegramClient:
     )
     await client.connect()
     
-    # VERIFY this is the correct user
+    # VERIFY this session belongs to the expected user
     me = await client.get_me()
+    if me is None or me.id != telegram_id:
+        await client.disconnect()
+        raise ValueError(
+            f"Session mismatch: expected Telegram ID {telegram_id}, "
+            f"but session belongs to {me.id if me else 'unknown'}. "
+            "Please log in again."
+        )
     logger.info(f"Created new client for user {telegram_id} (Telegram ID: {me.id}, Name: {me.first_name})")
-    
+
     _clients[telegram_id] = client
     return client
 
@@ -137,14 +144,10 @@ async def get_dialogs(client: TelegramClient) -> dict:
                     if is_megagroup or is_gigagroup:
                         categories["groups"].append(entry)
                         logger.debug(f"Added group: {title} (megagroup={is_megagroup})")
-                    elif not is_broadcast:
-                        # Regular channel that's not a broadcast
-                        categories["channels"].append(entry)
-                        logger.debug(f"Added channel: {title}")
                     else:
-                        # Broadcast channel
+                        # All other channels: broadcast channels and regular channels
                         categories["channels"].append(entry)
-                        logger.debug(f"Added broadcast channel: {title}")
+                        logger.debug(f"Added channel: {title} (broadcast={is_broadcast})")
                         
                 elif isinstance(entity, Chat):
                     # Regular Chat type (basic groups)

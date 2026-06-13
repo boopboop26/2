@@ -37,6 +37,15 @@ async def _require_login(cb: CallbackQuery) -> str | None:
     if not sess:
         await cb.answer("❌ Not logged in. Use /start first.", show_alert=True)
         return None
+    # Guard against a session row belonging to a different Telegram account
+    if sess.telegram_id != cb.from_user.id:
+        logger.critical(
+            f"Session ownership mismatch for user {cb.from_user.id}: "
+            f"session row belongs to telegram_id={sess.telegram_id}. "
+            "Refusing to return session string."
+        )
+        await cb.answer("❌ Session error. Please log in again with /start.", show_alert=True)
+        return None
     return sess.session_string
 
 
