@@ -10,7 +10,7 @@ from telethon.sessions import StringSession
 from telethon.tl.types import (
     Channel, Chat, User, InputPeerChannel,
     MessageMediaPhoto, MessageMediaDocument,
-    ForumTopic, Message
+    ForumTopic, Message, TypeChat, TypeChannel
 )
 from telethon.errors import (
     FloodWaitError, ChatForwardsRestrictedError,
@@ -31,14 +31,21 @@ def _get_api_credentials():
 
 
 async def get_client(telegram_id: int, session_string: str) -> TelegramClient:
-    """Get or create a Telethon client for this user."""
+    """
+    Get or create a Telethon client for this user.
+    CRITICAL: Uses the user's session_string, NOT the bot's credentials.
+    """
     if telegram_id in _clients:
         client = _clients[telegram_id]
         if client.is_connected():
+            me = await client.get_me()
+            logger.info(f"Reusing existing client for user {telegram_id} (Telegram ID: {me.id})")
             return client
         # Reconnect
         try:
             await client.connect()
+            me = await client.get_me()
+            logger.info(f"Reconnected client for user {telegram_id} (Telegram ID: {me.id})")
             return client
         except Exception as e:
             logger.warning(f"Failed to reconnect client: {e}")
@@ -47,7 +54,7 @@ async def get_client(telegram_id: int, session_string: str) -> TelegramClient:
 
     api_id, api_hash = _get_api_credentials()
     client = TelegramClient(
-        StringSession(session_string),
+        StringSession(session_string),  # USER'S session, not bot's
         api_id,
         api_hash,
         connection_retries=5,
@@ -55,6 +62,11 @@ async def get_client(telegram_id: int, session_string: str) -> TelegramClient:
         flood_sleep_threshold=60,
     )
     await client.connect()
+    
+    # VERIFY this is the correct user
+    me = await client.get_me()
+    logger.info(f"Created new client for user {telegram_id} (Telegram ID: {me.id}, Name: {me.first_name})")
+    
     _clients[telegram_id] = client
     return client
 
@@ -80,10 +92,11 @@ async def get_dialogs(client: TelegramClient) -> dict:
     """
     categories = {"groups": [], "channels": [], "private": []}
     skipped = 0
+    skipped_bots = 0
 
     try:
         dialogs_list = []
-        async for dialog in client.iter_dialogs():
+        async for dialog in client.iter_dialogs(ignore_pinned=False):
             dialogs_list.append(dialog)
         
         logger.info(f"Retrieved {len(dialogs_list)} dialogs")
@@ -100,6 +113,11 @@ async def get_dialogs(client: TelegramClient) -> dict:
                     skipped += 1
                     continue
 
+                # Skip bots
+                if isinstance(entity, User) and entity.bot:
+                    skipped_bots += 1
+                    continue
+
                 title = dialog.title or getattr(entity, "first_name", None) or "Unknown"
                 entry = {
                     "id": dialog.id,
@@ -110,16 +128,33 @@ async def get_dialogs(client: TelegramClient) -> dict:
                 }
 
                 if isinstance(entity, Channel):
-                    # Check if it's a megagroup (supergroup)
-                    if getattr(entity, "megagroup", False) or getattr(entity, "gigagroup", False):
+                    # megagroup = supergroup (large group with many members)
+                    # gigagroup = broadcast group (larger version)
+                    is_megagroup = getattr(entity, "megagroup", False)
+                    is_gigagroup = getattr(entity, "gigagroup", False)
+                    is_broadcast = getattr(entity, "broadcast", False)
+                    
+                    if is_megagroup or is_gigagroup:
                         categories["groups"].append(entry)
-                    else:
+                        logger.debug(f"Added group: {title} (megagroup={is_megagroup})")
+                    elif not is_broadcast:
+                        # Regular channel that's not a broadcast
                         categories["channels"].append(entry)
+                        logger.debug(f"Added channel: {title}")
+                    else:
+                        # Broadcast channel
+                        categories["channels"].append(entry)
+                        logger.debug(f"Added broadcast channel: {title}")
+                        
                 elif isinstance(entity, Chat):
+                    # Regular Chat type (basic groups)
                     categories["groups"].append(entry)
+                    logger.debug(f"Added basic group: {title}")
+                    
                 elif isinstance(entity, User):
-                    if not entity.bot:  # skip bots in private list
-                        categories["private"].append(entry)
+                    # Private users (1-on-1 chats)
+                    categories["private"].append(entry)
+                    logger.debug(f"Added private chat: {title}")
 
             except Exception as inner_e:
                 skipped += 1
@@ -135,14 +170,14 @@ async def get_dialogs(client: TelegramClient) -> dict:
         raise
 
     if skipped:
-        logger.info(f"Skipped {skipped} inaccessible/deleted dialogs")
+        logger.info(f"Skipped {skipped} inaccessible/deleted dialogs, {skipped_bots} bots")
 
     total = sum(len(v) for v in categories.values())
     logger.info(
-        f"Loaded {total} dialogs: "
+        f"✅ Loaded {total} dialogs: "
         f"{len(categories['groups'])} groups, "
         f"{len(categories['channels'])} channels, "
-        f"{len(categories['private'])} private"
+        f"{len(categories['private'])} private chats"
     )
     return categories
 
