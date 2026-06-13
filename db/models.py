@@ -75,6 +75,7 @@ class FileIndex(Base):
     __tablename__ = "file_index"
 
     id = Column(Integer, primary_key=True)
+    user_id = Column(BigInteger, nullable=False, index=True)  # CRITICAL: Isolate by user
     chat_id = Column(BigInteger, nullable=False)
     topic_id = Column(Integer, nullable=True)
     message_id = Column(Integer, nullable=False)
@@ -87,8 +88,8 @@ class FileIndex(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     __table_args__ = (
-        Index("ix_file_index_chat_unique", "chat_id", "file_unique_id"),
-        Index("ix_file_index_chat_size", "chat_id", "file_size"),
+        Index("ix_file_index_user_chat_unique", "user_id", "chat_id", "file_unique_id"),
+        Index("ix_file_index_user_chat_size", "user_id", "chat_id", "file_size"),
     )
 
 
