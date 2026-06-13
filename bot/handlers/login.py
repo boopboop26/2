@@ -181,6 +181,18 @@ async def _finish_login(msg: Message, state, client):
 
 # ── Logout ─────────────────────────────────────────────────────────
 
+@router.message(F.text == "/logout")
+async def cmd_logout(msg: Message):
+    user_id = msg.from_user.id
+    async with get_session_factory()() as db:
+        await delete_session(db, user_id)
+    reset_state(user_id)
+    await msg.answer(
+        "👋 Logged out. Your session has been removed.",
+        reply_markup=main_menu(logged_in=False),
+    )
+
+
 @router.callback_query(F.data == "logout")
 async def cb_logout(cb: CallbackQuery):
     user_id = cb.from_user.id
