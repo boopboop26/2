@@ -63,16 +63,19 @@ async def get_client(telegram_id: int, session_string: str) -> TelegramClient:
     )
     await client.connect()
     
-    # VERIFY this session belongs to the expected user
+    # VERIFY the session is valid and connected (no strict ID check —
+    # the session is already tied to the user in the database)
     me = await client.get_me()
-    if me is None or me.id != telegram_id:
+    if me is None:
         await client.disconnect()
         raise ValueError(
-            f"Session mismatch: expected Telegram ID {telegram_id}, "
-            f"but session belongs to {me.id if me else 'unknown'}. "
+            f"Session for user {telegram_id} is invalid or expired. "
             "Please log in again."
         )
-    logger.info(f"Created new client for user {telegram_id} (Telegram ID: {me.id}, Name: {me.first_name})")
+    logger.info(
+        f"Created new client for user {telegram_id} "
+        f"(session Telegram ID: {me.id}, Name: {me.first_name})"
+    )
 
     _clients[telegram_id] = client
     return client
