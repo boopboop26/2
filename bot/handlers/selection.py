@@ -46,6 +46,9 @@ async def _require_login(cb: CallbackQuery) -> str | None:
         )
         await cb.answer("❌ Session error. Please log in again with /start.", show_alert=True)
         return None
+    
+    # ✅ CRITICAL DEBUG: Verify this is the current user's session
+    logger.info(f"✅ User {cb.from_user.id} retrieved their session from database")
     return sess.session_string
 
 
