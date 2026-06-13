@@ -45,6 +45,7 @@ async def run_transfer(
     client: TelegramClient,
     db_session,
     job_id: int,
+    user_id: int,
     source_chat_id: int,
     source_topic_id: Optional[int],
     first_msg_id: int,
@@ -58,6 +59,8 @@ async def run_transfer(
 ) -> dict:
     """
     Main transfer coroutine.
+    CRITICAL: Now accepts user_id to isolate per-user duplicates!
+    
     Returns a summary dict with keys: moved, skipped, errors, duplicate_links.
     """
     from db.queries import update_job, save_duplicate, add_to_index
@@ -85,9 +88,10 @@ async def run_transfer(
         await progress_cb(0, 0, 0, 0)  # Signal "indexing"
         fingerprints = await build_dest_index(
             client, db_session,
+            user_id,
             dest_chat_id, dest_topic_id, scan_scope
         )
-        logger.info(f"Indexed {len(fingerprints)} fingerprints in destination")
+        logger.info(f"Indexed {len(fingerprints)} fingerprints in destination for user {user_id}")
 
     # ── 3. Collect source messages ───────────────────────────────────
     source_messages: list[Message] = await get_messages_in_range(
@@ -153,6 +157,7 @@ async def run_transfer(
                     # Persist to DB index
                     await add_to_index(
                         db_session,
+                        user_id=user_id,
                         chat_id=dest_chat_id,
                         topic_id=dest_topic_id,
                         message_id=msg.id,
