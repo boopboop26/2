@@ -259,12 +259,15 @@ def _extract_file_info(message: Message) -> Optional[dict]:
 
 
 async def build_dest_index(client: TelegramClient, db_session,
+                           user_id: int,
                            dest_chat_id: int,
                            dest_topic_id: Optional[int],
                            scope: str) -> set[str]:
     """
     Pre-scan destination and return a set of "fingerprints" already there.
     Fingerprint = "uid:{file_unique_id}" or "sz:{file_size}"
+    
+    CRITICAL: Now accepts user_id to isolate per-user duplicates!
     """
     from db.queries import add_to_index
 
@@ -288,6 +291,7 @@ async def build_dest_index(client: TelegramClient, db_session,
             # Also persist to DB index for caching
             await add_to_index(
                 db_session,
+                user_id=user_id,
                 chat_id=dest_chat_id,
                 topic_id=dest_topic_id if scope == "topic" else None,
                 message_id=msg.id,
@@ -302,7 +306,7 @@ async def build_dest_index(client: TelegramClient, db_session,
         logger.error(f"Error building destination index: {e}")
         raise
 
-    logger.info(f"Built index with {len(fingerprints)} fingerprints")
+    logger.info(f"Built index with {len(fingerprints)} fingerprints for user {user_id}")
     return fingerprints
 
 
