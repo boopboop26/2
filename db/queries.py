@@ -111,6 +111,7 @@ async def get_job_stats(db: AsyncSession, user_id: int) -> dict:
 
 async def is_in_index(
     db: AsyncSession,
+    user_id: int,
     chat_id: int,
     file_unique_id: Optional[str] = None,
     file_size: Optional[int] = None,
@@ -119,9 +120,11 @@ async def is_in_index(
 ) -> Optional[FileIndex]:
     """
     Check if a file fingerprint already exists in the DB index for a destination.
+    
+    CRITICAL: Now filters by user_id to isolate each user's duplicates!
 
-    scope='topic'  → match chat_id + topic_id (topic-level dedup)
-    scope='group'  → match chat_id only (group-wide dedup)
+    scope='topic'  → match user_id + chat_id + topic_id (topic-level dedup)
+    scope='group'  → match user_id + chat_id only (group-wide dedup)
 
     Checks file_unique_id first; falls back to file_size if uid not provided.
     Returns the matching FileIndex row or None.
@@ -129,7 +132,9 @@ async def is_in_index(
     if not file_unique_id and not file_size:
         return None
 
-    q = select(FileIndex).where(FileIndex.chat_id == chat_id)
+    q = select(FileIndex).where(
+        (FileIndex.user_id == user_id) & (FileIndex.chat_id == chat_id)
+    )
     if scope == "topic" and topic_id is not None:
         q = q.where(FileIndex.topic_id == topic_id)
 
@@ -143,11 +148,19 @@ async def is_in_index(
 
 
 # Keep old name as alias for backwards compatibility
-async def is_duplicate(db: AsyncSession, chat_id: int, file_unique_id: str = None,
-                        file_size: int = None, topic_id: int = None,
-                        scope: str = "topic") -> Optional[FileIndex]:
+async def is_duplicate(
+    db: AsyncSession,
+    user_id: int,
+    chat_id: int,
+    file_unique_id: str = None,
+    file_size: int = None,
+    topic_id: int = None,
+    scope: str = "topic",
+) -> Optional[FileIndex]:
     return await is_in_index(
-        db, chat_id,
+        db,
+        user_id=user_id,
+        chat_id=chat_id,
         file_unique_id=file_unique_id,
         file_size=file_size,
         topic_id=topic_id,
@@ -155,16 +168,24 @@ async def is_duplicate(db: AsyncSession, chat_id: int, file_unique_id: str = Non
     )
 
 
-async def add_to_index(db: AsyncSession, **kwargs) -> FileIndex:
+async def add_to_index(
+    db: AsyncSession,
+    user_id: int,
+    chat_id: int,
+    **kwargs
+) -> FileIndex:
     """
     Add a file fingerprint to the index.
-    Silently ignores duplicate entries (same chat_id + file_unique_id).
+    CRITICAL: Now requires user_id to isolate per-user duplicates!
+    
+    Silently ignores duplicate entries (same user_id + chat_id + file_unique_id).
     """
-    # Avoid inserting exact duplicates (same chat + uid)
-    if kwargs.get("file_unique_id") and kwargs.get("chat_id"):
+    # Avoid inserting exact duplicates (same user + chat + uid)
+    if kwargs.get("file_unique_id"):
         existing = await is_in_index(
             db,
-            chat_id=kwargs["chat_id"],
+            user_id=user_id,
+            chat_id=chat_id,
             file_unique_id=kwargs["file_unique_id"],
             topic_id=kwargs.get("topic_id"),
             scope="group",  # check globally to avoid any duplicate rows
@@ -172,7 +193,11 @@ async def add_to_index(db: AsyncSession, **kwargs) -> FileIndex:
         if existing:
             return existing
 
-    obj = FileIndex(**kwargs)
+    obj = FileIndex(
+        user_id=user_id,
+        chat_id=chat_id,
+        **kwargs
+    )
     db.add(obj)
     await db.commit()
     return obj
