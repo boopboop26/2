@@ -289,9 +289,10 @@ async def cb_set_chat(cb: CallbackQuery):
         )
         await cb.answer()
         try:
-            async with get_session_factory()() as db:
-                sess = await db_get_session(db, cb.from_user.id)
-            client = await get_client(cb.from_user.id, sess.session_string)
+            sess_str = await _require_login(cb)
+            if not sess_str:
+                return
+            client = await get_client(cb.from_user.id, sess_str)
             topics = await get_topics(client, chat_id)
 
             if topics:
